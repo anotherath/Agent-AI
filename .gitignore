@@ -1,0 +1,78 @@
+# ===== Environment / secrets =====
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Common secret / credential filenames
+*.pem
+*.p12
+*.pfx
+*.key
+!*example*.key
+credentials.json
+service-account*.json
+*secrets*.json
+*.secret
+.secrets/
+secrets/
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# ===== Testing / coverage / type / lint =====
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.hypothesis/
+.cache/
+
+# ===== IDE / OS =====
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ===== Local storage / uploads / vector dumps =====
+storage/uploads/*
+!storage/uploads/.gitkeep
+storage/tmp/
+*.sqlite
+*.sqlite3
+*.db
+qdrant_storage/
+.qdrant/
+
+# ===== Logs / runtime =====
+*.log
+logs/
+tmp/
+temp/
+*.pid
+
+# ===== Notebooks / local experiments =====
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ===== Tooling caches =====
+.langgraph_api/
+.turbo/
+.cursor/

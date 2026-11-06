@@ -1,0 +1,27 @@
+# ===== Web Framework =====
+fastapi==0.115.6                  # Framework xây dựng API
+uvicorn[standard]==0.34.0         # Server chạy FastAPI
+
+# ===== LangGraph & LangChain =====
+langgraph==0.2.60                 # Điều phối luồng xử lý (workflow/agent)
+langchain==0.3.14                 # Thư viện cốt lõi (bắt buộc khi dùng LangGraph)
+langchain-openai==0.2.14          # Kết nối với OpenAI
+langchain-community==0.3.14       # Tích hợp bên thứ ba (Qdrant, loader...)
+tavily-python==0.8.5              # Client cho Tavily Search API
+httpx==0.28.1                     # HTTP client (CoinGecko tools, ...)
+sympy==1.13.3                     # Tính toán symbolic / evaluate / solve
+pymupdf4llm==2.1                  # PDF → Markdown (text layer, chưa OCR)
+
+# ===== Database =====
+qdrant-client==1.12.1             # Kết nối với Qdrant (vector database)
+psycopg2-binary==2.9.10           # Driver kết nối PostgreSQL
+sqlalchemy==2.0.36                # ORM làm việc với PostgreSQL
+
+# ===== Config & Validation =====
+python-dotenv==1.0.1              # Đọc file .env
+pydantic==2.10.4                  # Validate dữ liệu
+pydantic-settings==2.7.0          # Quản lý cấu hình từ biến môi trường
+
+# ===== Dev / Lint =====
+ruff==0.17.4                      # Lint + format Python
+pytest==8.3.4                     # Chạy unit/integration tests
