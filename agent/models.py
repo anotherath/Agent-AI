@@ -1,13 +1,14 @@
-"""Chat model factory (OpenAI-compatible via langchain-openai).
+"""Factory ChatOpenAI dùng chung (generate, multi_plan, LLM fallback).
 
 Env:
-  OPENAI_API_KEY   — bắt buộc
-  OPENAI_MODEL     — mặc định gpt-4o-mini
-  OPENAI_BASE_URL  — optional (mặc định API OpenAI; set nếu dùng provider tương thích)
-  OPENAI_TEMPERATURE — mặc định 0.0
-  OPENAI_TOP_P     — optional (nucleus sampling; bỏ trống = không gửi)
-  OPENAI_TOP_K     — optional (qua model_kwargs; OpenAI official thường không dùng,
-                     hữu ích với provider tương thích)
+  OPENAI_API_KEY        bắt buộc
+  OPENAI_MODEL          mặc định gpt-4o-mini
+  OPENAI_TEMPERATURE    mặc định 0.0
+  OPENAI_BASE_URL       optional (proxy / OpenAI-compatible); trống = default SDK
+  OPENAI_REASONING_MAX_TOKENS  ngân sách suy luận (route/plan/tool/title)
+  OPENAI_MAX_TOKENS            alias cũ → fallback cho reasoning
+  OPENAI_GENERATE_MAX_TOKENS   ngân sách câu trả lời cuối (node generate)
+  OPENAI_TOP_P / OPENAI_TOP_K  optional
 """
 
 from __future__ import annotations
@@ -22,6 +23,11 @@ load_dotenv()
 
 DEFAULT_MODEL = "gpt-4o-mini"
 DEFAULT_TEMPERATURE = 0.0
+DEFAULT_REASONING_MAX_TOKENS = 1024
+DEFAULT_GENERATE_MAX_TOKENS = 2048
+
+
+# --- Đọc env ---
 
 
 def _require_api_key() -> str:
@@ -35,6 +41,11 @@ def _require_api_key() -> str:
 
 def _model_name() -> str:
     return os.getenv("OPENAI_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
+
+
+def _base_url() -> str | None:
+    raw = os.getenv("OPENAI_BASE_URL", "").strip()
+    return raw or None
 
 
 def _parse_float(name: str, raw: str) -> float:
@@ -76,9 +87,30 @@ def _optional_int(name: str, override: int | None) -> int | None:
     return _parse_int(name, raw)
 
 
-def _base_url() -> str | None:
-    url = os.getenv("OPENAI_BASE_URL", "").strip()
-    return url or None
+def resolve_reasoning_max_tokens(override: int | None = None) -> int:
+    """Ngân sách suy luận: route / plan / review / tool-LLM / title."""
+    if override is not None:
+        return override
+    raw = os.getenv("OPENAI_REASONING_MAX_TOKENS", "").strip()
+    if raw:
+        return _parse_int("OPENAI_REASONING_MAX_TOKENS", raw)
+    legacy = os.getenv("OPENAI_MAX_TOKENS", "").strip()
+    if legacy:
+        return _parse_int("OPENAI_MAX_TOKENS", legacy)
+    return DEFAULT_REASONING_MAX_TOKENS
+
+
+def resolve_generate_max_tokens(override: int | None = None) -> int:
+    """Ngân sách câu trả lời cuối (node generate) — tách khỏi reasoning."""
+    if override is not None:
+        return override
+    raw = os.getenv("OPENAI_GENERATE_MAX_TOKENS", "").strip()
+    if raw:
+        return _parse_int("OPENAI_GENERATE_MAX_TOKENS", raw)
+    return DEFAULT_GENERATE_MAX_TOKENS
+
+
+# --- Public API ---
 
 
 @lru_cache(maxsize=16)
@@ -86,17 +118,28 @@ def get_chat_model(
     *,
     model: str | None = None,
     temperature: float | None = None,
+    max_tokens: int | None = None,
     top_p: float | None = None,
     top_k: int | None = None,
 ) -> ChatOpenAI:
-    """Trả về ChatOpenAI dùng chung cho nodes (generate, planner, LLM fallback)."""
+    """Tạo (và cache) ChatOpenAI theo env / override.
+
+    Không truyền max_tokens → dùng ngân sách reasoning.
+    Node generate phải truyền resolve_generate_max_tokens().
+    """
     kwargs: dict = {
         "model": model or _model_name(),
         "api_key": _require_api_key(),
         "temperature": _temperature(temperature),
+        "max_tokens": (
+            max_tokens
+            if max_tokens is not None
+            else resolve_reasoning_max_tokens()
+        ),
     }
+
     base_url = _base_url()
-    if base_url:
+    if base_url is not None:
         kwargs["base_url"] = base_url
 
     resolved_top_p = _optional_float("OPENAI_TOP_P", top_p)
@@ -111,8 +154,16 @@ def get_chat_model(
 
 
 def clear_chat_model_cache() -> None:
-    """Xóa cache factory (dùng khi đổi env trong test)."""
+    """Xóa cache (test / đổi env runtime)."""
     get_chat_model.cache_clear()
 
 
-__all__ = ["get_chat_model", "clear_chat_model_cache", "DEFAULT_MODEL"]
+__all__ = [
+    "get_chat_model",
+    "clear_chat_model_cache",
+    "resolve_reasoning_max_tokens",
+    "resolve_generate_max_tokens",
+    "DEFAULT_MODEL",
+    "DEFAULT_REASONING_MAX_TOKENS",
+    "DEFAULT_GENERATE_MAX_TOKENS",
+]
