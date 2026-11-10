@@ -1,4 +1,4 @@
-"""Tool: giải phương trình."""
+"""Tool: calc_solve — giải phương trình."""
 
 from __future__ import annotations
 
@@ -6,18 +6,17 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 from sympy import Eq, Symbol, solve
 
-from agent.tools.calc.descriptions import SOLVE
+from agent.tools.calc.descriptions import (
+    CALC_SOLVE,
+    CALC_SOLVE_EQUATION,
+    CALC_SOLVE_VARIABLE,
+)
 from agent.tools.calc.safe import parse_math, to_tool_result
 
 
 class SolveInput(BaseModel):
-    equation: str = Field(
-        description=(
-            "Phương trình. Có thể viết 'x**2 - 4' (=0) hoặc 'x**2 - 4 = 0' "
-            "hoặc '2*x + 1 = 5'"
-        )
-    )
-    variable: str = Field(default="x", description="Ẩn số cần giải")
+    equation: str = Field(description=CALC_SOLVE_EQUATION)
+    variable: str = Field(default="x", description=CALC_SOLVE_VARIABLE)
 
 
 def calc_solve(equation: str, variable: str = "x") -> str:
@@ -50,7 +49,7 @@ def calc_solve(equation: str, variable: str = "x") -> str:
 def get_calc_solve_tool() -> StructuredTool:
     return StructuredTool.from_function(
         name="calc_solve",
-        description=SOLVE,
+        description=CALC_SOLVE,
         func=calc_solve,
         args_schema=SolveInput,
     )

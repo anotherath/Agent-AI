@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 
 from agent.tools.calc import get_calc_tools
-from agent.tools.calc.evaluate import calc_evaluate
-from agent.tools.calc.percent import calc_percent_change
-from agent.tools.calc.solve import calc_solve
+from agent.tools.calc.calc_evaluate import calc_evaluate
+from agent.tools.calc.calc_percent_change import calc_percent_change
+from agent.tools.calc.calc_solve import calc_solve
 from tests.conftest import show_tool_result
 
 

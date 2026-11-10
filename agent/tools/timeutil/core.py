@@ -33,7 +33,7 @@ def parse_datetime(value: str, default_tz: str = "UTC") -> datetime:
     if not text:
         raise ValueError("Thời gian trống")
 
-    # dd-mm-yyyy (CoinGecko style)
+    # dd-mm-yyyy
     m = re.fullmatch(r"(\d{2})-(\d{2})-(\d{4})", text)
     if m:
         day, month, year = map(int, m.groups())
@@ -59,7 +59,7 @@ def format_payload(dt: datetime) -> dict[str, Any]:
         "iso_utc": dt_utc.isoformat(),
         "unix": int(dt.timestamp()),
         "timezone": str(dt.tzinfo),
-        "coingecko_date": dt.strftime("%d-%m-%Y"),
         "date": dt.strftime("%Y-%m-%d"),
+        "date_dmy": dt.strftime("%d-%m-%Y"),
         "time": dt.strftime("%H:%M:%S"),
     }

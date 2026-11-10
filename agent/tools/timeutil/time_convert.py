@@ -1,4 +1,4 @@
-"""Tool: đổi timezone."""
+"""Tool: time_convert — đổi timezone."""
 
 from __future__ import annotations
 
@@ -11,20 +11,20 @@ from agent.tools.timeutil.core import (
     parse_datetime,
     to_tool_result,
 )
-from agent.tools.timeutil.descriptions import CONVERT
+from agent.tools.timeutil.descriptions import (
+    TIME_CONVERT,
+    TIME_CONVERT_DATETIME_STR,
+    TIME_CONVERT_FROM_TIMEZONE,
+    TIME_CONVERT_TO_TIMEZONE,
+)
 
 
 class ConvertInput(BaseModel):
-    datetime_str: str = Field(
-        description="Mốc thời gian ISO hoặc yyyy-mm-dd / dd-mm-yyyy"
-    )
-    from_timezone: str = Field(
-        default="UTC",
-        description="Timezone gắn nếu input naive",
-    )
+    datetime_str: str = Field(description=TIME_CONVERT_DATETIME_STR)
+    from_timezone: str = Field(default="UTC", description=TIME_CONVERT_FROM_TIMEZONE)
     to_timezone: str = Field(
         default="Asia/Ho_Chi_Minh",
-        description="Timezone đích",
+        description=TIME_CONVERT_TO_TIMEZONE,
     )
 
 
@@ -51,7 +51,7 @@ def time_convert(
 def get_time_convert_tool() -> StructuredTool:
     return StructuredTool.from_function(
         name="time_convert",
-        description=CONVERT,
+        description=TIME_CONVERT,
         func=time_convert,
         args_schema=ConvertInput,
     )

@@ -1,4 +1,4 @@
-"""Tool: thời gian hiện tại."""
+"""Tool: time_now — thời gian hiện tại."""
 
 from __future__ import annotations
 
@@ -8,14 +8,11 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
 from agent.tools.timeutil.core import format_payload, get_tz, to_tool_result
-from agent.tools.timeutil.descriptions import NOW
+from agent.tools.timeutil.descriptions import TIME_NOW, TIME_NOW_TIMEZONE
 
 
 class NowInput(BaseModel):
-    timezone: str = Field(
-        default="UTC",
-        description="IANA timezone, ví dụ: UTC, Asia/Ho_Chi_Minh",
-    )
+    timezone: str = Field(default="UTC", description=TIME_NOW_TIMEZONE)
 
 
 def time_now(timezone: str = "UTC") -> str:
@@ -31,7 +28,7 @@ def time_now(timezone: str = "UTC") -> str:
 def get_time_now_tool() -> StructuredTool:
     return StructuredTool.from_function(
         name="time_now",
-        description=NOW,
+        description=TIME_NOW,
         func=time_now,
         args_schema=NowInput,
     )

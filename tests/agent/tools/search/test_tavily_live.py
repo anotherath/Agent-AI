@@ -7,19 +7,24 @@ import os
 
 import pytest
 
-from agent.tools.search.tavily import get_tavily_search_tool
+from agent.tools.search.tavily_extract import get_tavily_extract_tool, tavily_extract
+from agent.tools.search.tavily_search import get_tavily_search_tool
 from tests.conftest import show_tool_result
 
 pytestmark = pytest.mark.integration
 
-
-@pytest.mark.skipif(
+_skip_no_key = pytest.mark.skipif(
     not os.getenv("TAVILY_API_KEY"),
     reason="Thiếu TAVILY_API_KEY trong .env",
 )
+
+
+@_skip_no_key
 def test_live_tavily_returns_structured_results():
-    tool = get_tavily_search_tool(max_results=2, include_answer=True)
-    result = tool.invoke({"query": "What is Bitcoin?"})
+    tool = get_tavily_search_tool()
+    result = tool.invoke(
+        {"query": "What is Bitcoin?", "max_results": 2, "include_answer": True}
+    )
     show_tool_result("tavily_search(What is Bitcoin?)", result)
 
     # Chuẩn hóa về list[dict] nếu có thể
@@ -58,3 +63,17 @@ def test_live_tavily_returns_structured_results():
             assert len(str(content)) > 30, f"Content quá ngắn: {item}"
         else:
             assert "http" in str(item).lower()
+
+
+@_skip_no_key
+def test_live_tavily_extract_reads_url():
+    tool = get_tavily_extract_tool()
+    assert tool.name == "tavily_extract"
+
+    data = json.loads(tavily_extract("https://example.com/"))
+    show_tool_result("tavily_extract(example.com)", data)
+
+    assert "error" not in data
+    content = data.get("content") or ""
+    assert len(content) > 20
+    assert "example" in content.lower() or "domain" in content.lower()
