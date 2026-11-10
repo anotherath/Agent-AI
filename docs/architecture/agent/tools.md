@@ -4,7 +4,7 @@ Hub: [`agent-architecture.md`](./agent-architecture.md) · Plan: [`plan-execute.
 
 ## Mục đích
 
-Local tools (LangChain `BaseTool`) gắn vào `single_tool` / `execute_plan` qua registry. Không MCP cho CoinGecko — REST client trong package.
+Local tools (LangChain `BaseTool`) gắn vào `single_tool` / `execute_plan` qua registry.
 
 ## Làm / không làm
 
@@ -26,11 +26,10 @@ Dùng bởi `nodes/single_tool.py` và `nodes/execute_plan.py` (lookup theo `too
 
 | Package | Tools |
 |---|---|
-| `search/` | `tavily_search` |
-| `coingecko/` | `coingecko_price`, `coingecko_search`, `coingecko_trending`, `coingecko_markets`, `coingecko_coin_detail`, `coingecko_market_chart`, `coingecko_ohlc`, `coingecko_history`, `coingecko_global`, `coingecko_categories`, `coingecko_exchange_rates` |
+| `search/` | `tavily_search`, `tavily_extract` (đọc URL) |
 | `calc/` | `calc_evaluate`, `calc_solve`, `calc_diff`, `calc_integrate`, `calc_percent_change` |
-| `timeutil/` | `time_now`, `time_convert`, `time_shift`, `time_to_coingecko_date` |
-| `pdf/` | `pdf_to_markdown` — wrapper gọi `rag.ingest.pdf_to_markdown` (chưa OCR) |
+| `timeutil/` | `time_now`, `time_convert`, `time_shift` |
+| `document/` | `document_to_markdown` — wrapper gọi `rag.ingest.to_markdown` (pdf/md/txt/docx) |
 
 Mô tả chi tiết nằm trong `descriptions.py` (hoặc docstring) từng nhóm — giữ đồng bộ với prompt orchestrator / multi_plan.
 
@@ -40,11 +39,13 @@ Mô tả chi tiết nằm trong `descriptions.py` (hoặc docstring) từng nhó
 agent/tools/
 ├── __init__.py              # get_tools()
 ├── search/
-│   └── tavily.py
-├── coingecko/               # REST + client.py
+│   ├── tavily_search.py
+│   ├── tavily_extract.py
+│   ├── descriptions.py
+│   └── client.py
 ├── calc/                    # SymPy
 ├── timeutil/
-└── pdf/                     # pymupdf4llm → Markdown
+└── document/                # wrapper → rag.ingest.to_markdown
 ```
 
 ## Convention thêm tool mới
@@ -68,8 +69,7 @@ agent/tools/
 
 | Biến | Tool |
 |---|---|
-| `TAVILY_API_KEY` | `tavily_search` |
-| CoinGecko API key + environment | `coingecko/*` (qua client) |
+| `TAVILY_API_KEY` | `tavily_search`, `tavily_extract` |
 
 Không commit secrets; đọc từ env / `.env`.
 

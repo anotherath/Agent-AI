@@ -11,7 +11,7 @@ Hub: [`agent-architecture.md`](./agent-architecture.md) · Routing: [`routing-je
 | Làm | Không làm |
 |---|---|
 | Khai báo field state + default | Logic HTTP / JWT |
-| Schema `RouteDecision` / `ReviewDecision` / `PlanStep` | Implement retrieve/embed |
+| Schema `RouteDecision` / `ReviewDecision` / `PlanStep` / `GuardDecision` | Implement retrieve/embed |
 | Giữ typed, serializable | Nhét raw FastAPI request vào state |
 
 ## AgentState (tối thiểu)
@@ -20,6 +20,8 @@ Hub: [`agent-architecture.md`](./agent-architecture.md) · Routing: [`routing-je
 query: str
 user_id: str
 messages: list
+
+guard: GuardDecision | null   # input_guard / output_guard
 
 route: RouteDecision | null
 review: ReviewDecision | null
@@ -38,6 +40,18 @@ max_review_loops: int        # default 2
 jev_confidence_threshold: float   # default ~0.6–0.7
 
 answer: str
+```
+
+## GuardDecision
+
+Output của `input_guard` / `output_guard`. Chi tiết hành vi: [`guardrails.md`](./guardrails.md).
+
+```text
+allowed: bool
+action: allow | refuse | rewrite | strip
+stage: input | output
+reason: str
+decided_by: rules | moderation | llm
 ```
 
 ## RouteDecision
@@ -101,4 +115,5 @@ ok: bool
 
 - Thêm field graph → `state.py` + node đọc/ghi + doc này  
 - Đổi schema route/review → `state` + `routing/` + prompts  
+- Đổi schema guard → `state` + `agent/guardrails/` + nodes guard  
 - Đổi shape documents → port RAG + generate (xem [`generate-and-rag-ports.md`](./generate-and-rag-ports.md))

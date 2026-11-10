@@ -36,18 +36,16 @@ Chỉ khi orchestrator chọn `multi_plan` (hoặc gather_review chọn `multi_p
 
 ```text
 step0: time_shift(days=-7)
-       → result.coingecko_date = "01-11-2026"
+       → result.date = "2026-11-01"
 
-step1: coingecko_history(
-         coin="bitcoin",
-         date="$step0.result.coingecko_date"
+step1: calc_percent_change(
+         old=100,
+         new=125
        )
+       → result.percent_change = 25.0
 
-step2: coingecko_price(coin="bitcoin")
-
-step3: calc_percent_change(
-         old="$step1.result.market_data.current_price.usd",
-         new="$step2.result.price.usd"
+step2: tavily_search(
+         query="giải thích phần trăm thay đổi trong tài chính"
        )
 ```
 
@@ -66,10 +64,10 @@ Classifier: xem [`routing-jev.md`](./routing-jev.md). Schema: [`state.md`](./sta
 
 ## Luồng ví dụ
 
-`BTC tăng bao nhiêu % so với 7 ngày trước?`
+`Tính % thay đổi từ giá trị cũ sang mới, rồi search giải thích`
 
 1. orchestrator → `multi_plan`  
-2. plan: time → coingecko history/price → calc %  
+2. plan: calc_percent_change → tavily_search  
 3. `execute_plan`  
 4. `gather_review` → đủ → `generate` → END  
 

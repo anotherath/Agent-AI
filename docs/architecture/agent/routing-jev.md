@@ -32,6 +32,8 @@ state (query / tool_results / …)
 
 Tham chiếu: [TypeSafe Jev / System One](https://typesafe.ai/blog/introducing-system-one-models-and-jev).
 
+Jev qua `typesafe_sdk` + `TYPESAFE_API_KEY` (API TypeSafe chính ngạch). Model: `TYPESAFE_DEFAULT_MODEL` (vd. `jev-latest`). Thiếu key / SDK / lỗi → `classify_choice` trả `None` → LLM fallback.
+
 ## Áp dụng theo node
 
 | Node | Jev Choice | Không làm |

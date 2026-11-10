@@ -14,8 +14,8 @@ app/ (FastAPI) ── auth / documents / chat
   │
   ├── rag/ ── ingest PDF → chunk → embed → vectorstore
   │
-  └── agent/ ── LangGraph (Jev/LLM orchestrator → direct|retrieve|tool|plan → generate;
-                 gather_review cũng Jev → LLM nếu low conf)
+  └── agent/ ── LangGraph (input_guard → Jev/LLM orchestrator → direct|retrieve|tool|plan
+                 → generate → output_guard; gather_review cũng Jev → LLM nếu low conf)
 ```
 
 Chi tiết runtime agent (gồm **Jev + LLM fallback**): xem [`agent/agent-architecture.md`](./agent/agent-architecture.md).
@@ -41,10 +41,10 @@ agent-ai-rag/
 ├── agent/                  # LangGraph domain
 │   ├── nodes/              # các bước trong graph
 │   ├── routing/            # Jev + LLM fallback (route / review)
-│   ├── tools/              # search/, coingecko/, calc/, timeutil/
+│   ├── tools/              # search/, calc/, timeutil/, document/
 │   └── prompts/            # prompt templates
 ├── rag/                    # RAG infrastructure
-│   ├── ingest/             # pipeline nạp PDF (pdf_to_md, …)
+│   ├── ingest/             # to_markdown multi-source (pdf/md/txt/docx, …)
 │   ├── retriever.py        # (sẽ có) vector search
 │   └── rerank.py           # rerank candidates → top-n
 ├── workers/                # background jobs (ingest nặng)
@@ -54,10 +54,10 @@ agent-ai-rag/
 │   ├── api/
 │   ├── agent/
 │   │   └── tools/
-│   │       ├── coingecko/
 │   │       ├── search/
 │   │       ├── calc/
-│   │       └── timeutil/
+│   │       ├── timeutil/
+│   │       └── document/
 │   └── rag/
 └── docs/                   # tài liệu dự án
 ```
@@ -88,7 +88,7 @@ Domain LangGraph: state, nodes, tools, prompts, compile graph.
 |---|---|
 | `agent/nodes/` | Từng bước graph: orchestrator, retrieve, rerank, tools, gather_review, generate… |
 | `agent/routing/` | Jev client + LLM fallback cho route/review (xem agent-architecture) |
-| `agent/tools/` | Tool theo nhóm thư mục (`search/`, `coingecko/`, …) |
+| `agent/tools/` | Tool theo nhóm thư mục (`search/`, `calc/`, `timeutil/`, `document/` …) |
 | `agent/prompts/` | Rubric/options Jev + prompt LLM fallback / generate |
 
 **Không đặt ở đây:** đọc JWT, nhận multipart upload, thao tác FastAPI request.
@@ -99,7 +99,7 @@ Hạ tầng RAG: ingest tài liệu và retrieval.
 
 | Folder | Dùng để làm gì |
 |---|---|
-| `rag/ingest/` | Pipeline: load PDF → clean → chunk → embed → lưu vector |
+| `rag/ingest/` | Pipeline: to_markdown (pdf/md/txt/docx) → chunk → embed → vector |
 | `rag/` (root) | Embeddings, vectorstore client, retriever helpers |
 
 Chi tiết thứ tự stage (upload → convert → chunk → embed → upsert): [`rag/ingest-pipeline.md`](./rag/ingest-pipeline.md).
@@ -143,7 +143,8 @@ docs/
         ├── nodes.md
         ├── plan-execute.md
         ├── tools.md
-        └── generate-and-rag-ports.md
+        ├── generate-and-rag-ports.md
+        └── guardrails.md            # input_guard + output_guard
 ```
 
 ## Ranh giới trách nhiệm
