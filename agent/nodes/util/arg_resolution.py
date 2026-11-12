@@ -8,7 +8,10 @@ from typing import Any
 
 from agent.state import ToolResult
 
-_STEP_REF = re.compile(r"^\$step(\d+)(?:\.(.+))?$")
+# Cả chuỗi là một reference → giữ type gốc (int/float/dict/…).
+_STEP_REF_FULL = re.compile(r"^\$step(\d+)(?:\.(.+))?$")
+# Reference nằm trong / hoặc bằng cả chuỗi (dùng cho template).
+_STEP_REF_INLINE = re.compile(r"\$step(\d+)(?:\.([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*))?")
 
 
 def _parse_result(raw: Any) -> Any:
@@ -42,17 +45,38 @@ def _result_for_step(tool_results: list[ToolResult], step: int) -> Any:
     raise KeyError(f"No tool_results for step {step}")
 
 
+def _lookup(step: int, path: str | None, tool_results: list[ToolResult]) -> Any:
+    payload = _result_for_step(tool_results, step)
+    if path:
+        return _dig(payload, path)
+    return payload
+
+
+def _format_embedded(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False, default=str)
+    return str(value)
+
+
 def resolve_value(value: Any, tool_results: list[ToolResult]) -> Any:
     if isinstance(value, str):
-        match = _STEP_REF.match(value.strip())
-        if not match:
-            return value
-        step = int(match.group(1))
-        path = match.group(2)
-        payload = _result_for_step(tool_results, step)
-        if path:
-            return _dig(payload, path)
-        return payload
+        stripped = value.strip()
+        full = _STEP_REF_FULL.match(stripped)
+        if full:
+            return _lookup(int(full.group(1)), full.group(2), tool_results)
+
+        if _STEP_REF_INLINE.search(value):
+
+            def _replace(match: re.Match[str]) -> str:
+                return _format_embedded(
+                    _lookup(int(match.group(1)), match.group(2), tool_results)
+                )
+
+            return _STEP_REF_INLINE.sub(_replace, value)
+
+        return value
     if isinstance(value, dict):
         return {k: resolve_value(v, tool_results) for k, v in value.items()}
     if isinstance(value, list):

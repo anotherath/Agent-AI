@@ -8,7 +8,7 @@ TAVILY_SEARCH = (
     "Dùng khi cần thông tin từ internet nhưng chưa có URL cụ thể "
     "(tin tức, tra cứu, 'ai nói gì về…').\n"
     "Input: query (chuỗi tìm kiếm).\n"
-    "Output: list kết quả với title, url, content/snippet.\n"
+    "Output: JSON {query, results[{title, url, content}], answer?}.\n"
     "Lưu ý: snippet không phải full page — đã có URL cần đọc sâu thì dùng tavily_extract. "
     "Có rate limit/credit Tavily."
 )
@@ -29,10 +29,10 @@ TAVILY_SEARCH_INCLUDE_ANSWER = (
 # name: tavily_extract
 # ---------------------------------------------------------------------------
 TAVILY_EXTRACT = (
-    "Đọc nội dung một trang web theo URL qua Tavily Extract, trả về text hoặc markdown sạch.\n"
+    "Đọc nội dung một trang web theo URL qua Tavily Extract, trả về content đã làm sạch.\n"
     "Dùng khi người dùng đưa link trực tiếp, hoặc sau tavily_search khi cần đọc đầy đủ một trang.\n"
     "Input: url (bắt buộc); extract_depth, format (tùy chọn).\n"
-    "Output: JSON gồm url, content và title (nếu có).\n"
+    "Output: JSON {url, title?, content, extract_depth, format} — đã bỏ ảnh/nav/JS chrome, có trần độ dài.\n"
     "Lưu ý:\n"
     "- Trang login, paywall hoặc chặn bot có thể bị fail.\n"
     "- extract_depth=advanced đọc tốt hơn với trang nhiều JS hoặc bảng, nhưng tốn credit hơn."

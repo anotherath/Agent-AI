@@ -11,12 +11,15 @@ from agent.tools.timeutil import get_timeutil_tools
 
 
 def get_tools() -> list[BaseTool]:
-    """Trả về toàn bộ local tools sẵn sàng bind vào agent/graph."""
+    """Trả về toàn bộ local tools sẵn sàng bind vào agent/graph.
+
+    document tools tạm thời chưa đăng ký catalog (get_document_tools vẫn dùng được riêng).
+    """
     return [
         *get_search_tools(),
         *get_calc_tools(),
         *get_timeutil_tools(),
-        *get_document_tools(),
+        # *get_document_tools(),
     ]
 
 

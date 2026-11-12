@@ -13,15 +13,18 @@ from app.services.session_title import (
 )
 
 
-def test_should_autotitle_only_first_empty_main() -> None:
+def test_should_autotitle_first_empty_main_or_sub() -> None:
     main_empty = SimpleNamespace(is_main=True, title=None)
     main_titled = SimpleNamespace(is_main=True, title="Đã có tên")
-    sub = SimpleNamespace(is_main=False, title=None)
+    sub_empty = SimpleNamespace(is_main=False, title=None)
+    sub_titled = SimpleNamespace(is_main=False, title="Nhánh cũ")
 
     assert should_autotitle(main_empty, message_count=1) is True
     assert should_autotitle(main_empty, message_count=2) is False
     assert should_autotitle(main_titled, message_count=1) is False
-    assert should_autotitle(sub, message_count=1) is False
+    assert should_autotitle(sub_empty, message_count=1) is True
+    assert should_autotitle(sub_empty, message_count=2) is False
+    assert should_autotitle(sub_titled, message_count=1) is False
 
 
 def test_sanitize_and_fallback() -> None:

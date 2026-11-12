@@ -45,26 +45,45 @@ async def _fake_astream_events(_state: Any, config: Any = None, version: str = "
     }
     yield {
         "event": "on_chain_start",
-        "name": "single_tool",
-        "metadata": {"langgraph_node": "single_tool"},
+        "name": "tool_select",
+        "metadata": {"langgraph_node": "tool_select"},
+        "data": {},
+    }
+    yield {
+        "event": "on_chain_end",
+        "name": "tool_select",
+        "metadata": {"langgraph_node": "tool_select"},
+        "data": {
+            "output": {
+                "tool_pick": {
+                    "tool_name": "tavily_search",
+                    "tool_args": {"query": "cats"},
+                }
+            }
+        },
+    }
+    yield {
+        "event": "on_chain_start",
+        "name": "tool_execution",
+        "metadata": {"langgraph_node": "tool_execution"},
         "data": {},
     }
     yield {
         "event": "on_tool_start",
         "name": "tavily_search",
-        "metadata": {"langgraph_node": "single_tool"},
+        "metadata": {"langgraph_node": "tool_execution"},
         "data": {"input": {"query": "cats"}},
     }
     yield {
         "event": "on_tool_end",
         "name": "tavily_search",
-        "metadata": {"langgraph_node": "single_tool"},
+        "metadata": {"langgraph_node": "tool_execution"},
         "data": {"output": '[{"title":"Cat"}]', "input": {"query": "cats"}},
     }
     yield {
         "event": "on_chain_end",
-        "name": "single_tool",
-        "metadata": {"langgraph_node": "single_tool"},
+        "name": "tool_execution",
+        "metadata": {"langgraph_node": "tool_execution"},
         "data": {
             "output": {
                 "tool_results": [{"tool": "tavily_search", "ok": True}],

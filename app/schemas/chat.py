@@ -46,9 +46,26 @@ class ChatSessionListOut(BaseModel):
     has_more: bool
 
 
+class SessionSearchHitOut(BaseModel):
+    session: ChatSessionOut
+    match_in: Literal["title", "message"]
+    snippet: str
+    message_id: uuid.UUID | None = None
+
+
+class SessionSearchOut(BaseModel):
+    items: list[SessionSearchHitOut]
+    total: int
+    limit: int
+    offset: int
+    has_more: bool
+    q: str
+    scope: Literal["all", "title", "messages"]
+
+
 class ForkRequest(BaseModel):
     forked_from_message_id: uuid.UUID
-    title: str | None = None
+    # title luôn null khi fork → auto-title như main ở tin đầu trên sub
 
 
 class MessageOut(BaseModel):
@@ -71,15 +88,27 @@ class MessageRegenerateRequest(BaseModel):
     """Optional override; default = latest user message on the session."""
 
     user_message_id: uuid.UUID | None = None
+    model: str | None = Field(
+        default=None,
+        description="Catalog id provider:name; null → default / metadata cũ",
+    )
 
 
 class ChatMessageCreate(BaseModel):
     content: str = Field(min_length=1)
     file_ids: list[uuid.UUID] | None = None  # reserved; ignored this phase
+    model: str | None = Field(
+        default=None,
+        description="Catalog id provider:name; null → default catalog",
+    )
 
 
 class MessageEditRequest(BaseModel):
     content: str = Field(min_length=1)
+    model: str | None = Field(
+        default=None,
+        description="Catalog id provider:name; null → default catalog",
+    )
 
 
 class AskFromSelectionRequest(BaseModel):
@@ -87,3 +116,7 @@ class AskFromSelectionRequest(BaseModel):
     selected_text: str = Field(min_length=1)
     question: str = Field(min_length=1)
     target: Literal["main", "subsession"]
+    model: str | None = Field(
+        default=None,
+        description="Catalog id provider:name; null → default catalog",
+    )

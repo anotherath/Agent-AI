@@ -8,14 +8,16 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from agent.graph import get_compiled_graph
+from agent.models import llm_model_scope
 from agent.state import AgentState, initial_state
 from app.services.langfuse_tracing import chat_turn_trace, flush_langfuse
 
 NODE_KIND: dict[str, str] = {
     "orchestrator": "route",
-    "single_tool": "tool",
-    "multi_plan": "plan",
-    "execute_plan": "plan",
+    "tool_select": "tool",
+    "tool_execution": "tool",
+    "planner": "plan",
+    "plan_execution": "plan",
     "gather_review": "plan",
     "generate": "generate",
     "input_guard": "guard",
@@ -68,18 +70,22 @@ async def iter_agent_events(
     history: list[dict[str, str]],
     run_id: str | None = None,
     session_id: str | None = None,
+    model: str | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """Yield step_* + token message_delta (generate) + message_completed."""
     rid = run_id or str(uuid.uuid4())
     graph = get_compiled_graph()
-    state: AgentState = initial_state(query, user_id=user_id, messages=history)
+    catalog_model = (model or "").strip() or None
+    state: AgentState = initial_state(
+        query, user_id=user_id, messages=history, model=catalog_model
+    )
     steps: list[dict[str, Any]] = []
     open_steps: dict[str, str] = {}
     final_answer_parts: list[str] = []
     token_streamed = False
 
     try:
-        with chat_turn_trace(
+        with llm_model_scope(catalog_model), chat_turn_trace(
             query=query,
             user_id=user_id,
             session_id=session_id,
@@ -178,7 +184,7 @@ async def iter_agent_events(
                     if step_id:
                         label = {
                             "orchestrator": "Orchestrating",
-                            "multi_plan": "Planning next moves",
+                            "planner": "Planning next moves",
                             "gather_review": "Reviewing",
                             "retrieve": "Retrieving",
                             "rerank": "Reranking",

@@ -20,7 +20,7 @@ from app.main import app
 from app.services import chat_sessions as chat_svc
 from app.services import messages as messages_svc
 from app.services import projects as projects_svc
-from app.services.errors import ConflictError, ForbiddenError
+from app.services.errors import ConflictError, ForbiddenError, ServiceError
 
 load_dotenv()
 
@@ -109,6 +109,43 @@ def test_project_icon_default_and_patch(db: Session, user: User) -> None:
     assert updated.icon == "rocket"
 
 
+def test_search_sessions_title_and_message(db: Session, user: User) -> None:
+    main = chat_svc.create_main_session(db, user.id, title="Giá vàng SJC")
+    other = chat_svc.create_main_session(db, user.id, title="Thời tiết Hà Nội")
+    messages_svc.add_message(
+        db, other, role="user", content="Hôm nay mưa to ở Sài Gòn không?"
+    )
+    db.commit()
+
+    hits, has_more = chat_svc.search_sessions(
+        db, user.id, q="vàng", scope="title"
+    )
+    assert has_more is False
+    assert len(hits) == 1
+    assert hits[0].session.id == main.id
+    assert hits[0].match_in == "title"
+    assert hits[0].message_id is None
+
+    hits2, _ = chat_svc.search_sessions(
+        db, user.id, q="Sài Gòn", scope="messages"
+    )
+    assert len(hits2) == 1
+    assert hits2[0].session.id == other.id
+    assert hits2[0].match_in == "message"
+    assert hits2[0].message_id is not None
+    assert "Sài Gòn" in hits2[0].snippet
+
+    # Title ưu tiên hơn message nếu cùng session vừa title vừa content.
+    messages_svc.add_message(db, main, role="user", content="hỏi thêm về vàng")
+    db.commit()
+    hits3, _ = chat_svc.search_sessions(db, user.id, q="vàng", scope="all")
+    by_id = {h.session.id: h for h in hits3}
+    assert by_id[main.id].match_in == "title"
+
+    with pytest.raises(ServiceError):
+        chat_svc.search_sessions(db, user.id, q="a")
+
+
 def test_fork_and_context_assembly(db: Session, user: User) -> None:
     import time
 
@@ -121,7 +158,7 @@ def test_fork_and_context_assembly(db: Session, user: User) -> None:
     db.commit()
 
     sub = chat_svc.fork_subsession(
-        db, user.id, main.id, forked_from_message_id=m2.id, title="branch"
+        db, user.id, main.id, forked_from_message_id=m2.id
     )
     messages_svc.add_message(db, sub, role="user", content="branch q")
     db.commit()
@@ -356,6 +393,40 @@ def test_pin_session_limit_three(db: Session, user: User) -> None:
     assert pinned_ids == {s1.id, s3.id, s4.id}
 
 
+def test_pin_subsession_shares_limit(db: Session, user: User) -> None:
+    main = chat_svc.create_main_session(db, user.id, title="m")
+    m1 = messages_svc.add_message(db, main, role="user", content="hi")
+    db.commit()
+    sub = chat_svc.fork_subsession(
+        db, user.id, main.id, forked_from_message_id=m1.id
+    )
+    db.commit()
+
+    chat_svc.pin_session(db, user.id, main.id)
+    chat_svc.pin_session(db, user.id, sub.id)
+    db.commit()
+    assert sub.is_pinned is True
+
+    s2 = chat_svc.create_main_session(db, user.id, title="m2")
+    s3 = chat_svc.create_main_session(db, user.id, title="m3")
+    db.commit()
+    chat_svc.pin_session(db, user.id, s2.id)
+    db.commit()
+
+    with pytest.raises(ConflictError):
+        chat_svc.pin_session(db, user.id, s3.id)
+
+    subs = chat_svc.list_subsessions(db, user.id, main.id)
+    assert subs[0].id == sub.id
+    assert subs[0].is_pinned is True
+
+    chat_svc.unpin_session(db, user.id, sub.id)
+    db.commit()
+    pinned = chat_svc.pin_session(db, user.id, s3.id)
+    db.commit()
+    assert pinned.is_pinned is True
+
+
 def test_last_message_at_tracks_main_and_sub(db: Session, user: User) -> None:
     main = chat_svc.create_main_session(db, user.id, title="lm")
     db.commit()
@@ -373,7 +444,7 @@ def test_last_message_at_tracks_main_and_sub(db: Session, user: User) -> None:
     assert main_ts is not None
 
     sub = chat_svc.fork_subsession(
-        db, user.id, main.id, forked_from_message_id=m1.id, title="branch"
+        db, user.id, main.id, forked_from_message_id=m1.id
     )
     db.commit()
     db.refresh(main)

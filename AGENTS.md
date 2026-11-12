@@ -11,6 +11,20 @@ Auth (Google OAuth, session cookie, …) làm trên FastAPI/`app/`, không dùng
 
 ---
 
+## Đặt tên file trong `agent/`
+
+Tên file Python dưới `agent/` dùng **danh từ / cụm danh từ** (`snake_case`), không dùng động từ đứng trước.
+
+- Đúng: `tool_select.py`, `tool_execution.py`, `orchestrator.py`
+- Sai: `execute_tool.py`, `select_tool.py`, `invoke_tool.py`
+
+Helper (không phải LangGraph node) đặt trong `agent/nodes/util/`, vẫn tên danh từ.
+
+- Node: `agent/nodes/tool_select.py`, `agent/nodes/tool_execution.py`
+- Helper: `agent/nodes/util/tool_invocation.py`, `agent/nodes/util/arg_resolution.py`, `agent/nodes/util/tool_pick.py`
+
+---
+
 ## Cách viết tool (một chuẩn duy nhất)
 
 Mọi tool trong `agent/tools/` theo **một** pattern:

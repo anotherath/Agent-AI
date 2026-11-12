@@ -93,7 +93,6 @@ def prepare_edit_target(
         user_id,
         session.id,
         forked_from_message_id=target.id,
-        title=None,
     )
     user_msg = add_message(
         db,

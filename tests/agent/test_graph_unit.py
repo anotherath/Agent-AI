@@ -13,13 +13,17 @@ def test_build_graph_has_expected_nodes():
     names = set(g.nodes)
     for node in (
         "orchestrator",
-        "single_tool",
-        "multi_plan",
-        "execute_plan",
+        "tool_select",
+        "tool_execution",
+        "planner",
+        "plan_execution",
         "gather_review",
         "generate",
     ):
         assert node in names
+    assert "single_tool" not in names
+    assert "multi_plan" not in names
+    assert "plan" not in names  # node lập plan tên planner; state.plan vẫn là data
     assert "retrieve" not in names
     assert "input_guard" not in names
     assert "output_guard" not in names
@@ -65,7 +69,7 @@ def test_gather_review_budget_forces_generate():
 
 
 def test_decide_route_jev_high_conf():
-    from agent.routing.decide import decide_route
+    from agent.routing.decision import decide_route
     from agent.routing.jev_client import JevChoiceResult
 
     jev = JevChoiceResult(
@@ -74,8 +78,8 @@ def test_decide_route_jev_high_conf():
         probabilities={"direct": 0.95, "single_tool": 0.03, "multi_plan": 0.02},
     )
     with (
-        patch("agent.routing.decide.classify_choice", return_value=jev),
-        patch("agent.routing.decide.llm_route") as llm,
+        patch("agent.routing.decision.classify_choice", return_value=jev),
+        patch("agent.routing.decision.llm_route") as llm,
     ):
         decision = decide_route(query="hi", tool_catalog="- time_now: now")
         llm.assert_not_called()
@@ -84,7 +88,7 @@ def test_decide_route_jev_high_conf():
 
 
 def test_decide_route_low_conf_falls_back_llm():
-    from agent.routing.decide import decide_route
+    from agent.routing.decision import decide_route
     from agent.routing.jev_client import JevChoiceResult
 
     jev = JevChoiceResult(
@@ -92,10 +96,10 @@ def test_decide_route_low_conf_falls_back_llm():
         confidence=0.2,
         probabilities={"direct": 0.4, "single_tool": 0.3, "multi_plan": 0.3},
     )
-    fallback = RouteDecision(route="single_tool", tool_name="time_now", decided_by="llm")
+    fallback = RouteDecision(route="single_tool", decided_by="llm")
     with (
-        patch("agent.routing.decide.classify_choice", return_value=jev),
-        patch("agent.routing.decide.llm_route", return_value=fallback) as llm,
+        patch("agent.routing.decision.classify_choice", return_value=jev),
+        patch("agent.routing.decision.llm_route", return_value=fallback) as llm,
     ):
         decision = decide_route(query="mấy giờ", tool_catalog="- time_now: now")
         llm.assert_called_once()
@@ -118,7 +122,7 @@ def test_knobs_from_env(monkeypatch):
 
 def test_no_typesafe_key_falls_back_llm(monkeypatch):
     from agent.routing import jev_client
-    from agent.routing.decide import decide_route
+    from agent.routing.decision import decide_route
 
     monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
     assert jev_client.jev_available() is False
@@ -130,7 +134,7 @@ def test_no_typesafe_key_falls_back_llm(monkeypatch):
     ) is None
 
     fallback = RouteDecision(route="direct", decided_by="llm")
-    with patch("agent.routing.decide.llm_route", return_value=fallback) as llm:
+    with patch("agent.routing.decision.llm_route", return_value=fallback) as llm:
         decision = decide_route(query="hi", tool_catalog="- time_now: now")
         llm.assert_called_once()
     assert decision.decided_by == "llm"

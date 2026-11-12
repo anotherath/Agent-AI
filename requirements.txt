@@ -24,6 +24,7 @@ google-auth==2.37.0               # Verify Google OAuth ID token
 
 # ===== Config & Validation =====
 python-dotenv==1.0.1              # Đọc file .env
+PyYAML==6.0.2                     # Catalog LLM providers (config/llm_providers.yaml)
 pydantic==2.10.4                  # Validate dữ liệu
 pydantic-settings==2.7.0          # Quản lý cấu hình từ biến môi trường
 

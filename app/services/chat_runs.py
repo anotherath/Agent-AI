@@ -33,6 +33,7 @@ class ChatRun:
     session_id: uuid.UUID
     user_id: uuid.UUID
     user_message_id: uuid.UUID
+    model: str | None = None  # catalog id provider:name
     history: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
     subscribers: list[asyncio.Queue] = field(default_factory=list)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -225,6 +226,7 @@ async def _execute_run(run: ChatRun) -> None:
             history=history,
             run_id=str(run.run_id),
             session_id=str(run.session_id),
+            model=run.model,
         ).__aiter__()
         next_agent: asyncio.Task[Any] = asyncio.create_task(
             agent_aiter.__anext__()
@@ -281,15 +283,18 @@ async def _execute_run(run: ChatRun) -> None:
                         }
                         await _publish(run, name, data)
                         continue
+                    assistant_meta: dict[str, Any] = {
+                        "run_id": str(run.run_id),
+                        "steps": steps,
+                    }
+                    if run.model:
+                        assistant_meta["model"] = run.model
                     assistant = add_message(
                         db,
                         session,
                         role="assistant",
                         content=assistant_content,
-                        metadata={
-                            "run_id": str(run.run_id),
-                            "steps": steps,
-                        },
+                        metadata=assistant_meta,
                         parent_message_id=user_message.id,
                     )
                     chat_svc.touch_session(db, session)
@@ -352,6 +357,7 @@ async def start_chat_run(
     user_id: uuid.UUID,
     session_id: uuid.UUID,
     user_message_id: uuid.UUID,
+    model: str | None = None,
 ) -> uuid.UUID:
     """Bắt đầu agent run nền. Raise ConflictError nếu session đang chạy."""
     db = SessionLocal()
@@ -372,6 +378,7 @@ async def start_chat_run(
             session_id=session_id,
             user_id=user_id,
             user_message_id=user_message_id,
+            model=(model or "").strip() or None,
         )
         _runs[str(run_id)] = run
         _set_run_state(

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Literal
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -12,6 +14,17 @@ from app.db.models import ChatSession, Message, Project
 from app.services.errors import ConflictError, ForbiddenError, NotFoundError, ServiceError
 
 MAX_PINNED_SESSIONS = 3
+MIN_SEARCH_QUERY_LEN = 2
+SEARCH_SCAN_CAP = 200
+SearchScope = Literal["all", "title", "messages"]
+
+
+@dataclass(frozen=True)
+class SessionSearchHit:
+    session: ChatSession
+    match_in: Literal["title", "message"]
+    snippet: str
+    message_id: uuid.UUID | None
 
 
 def get_owned_session(
@@ -115,14 +128,14 @@ def list_main_sessions_page(
     return rows[:limit], has_more
 
 
-def _count_pinned_mains(db: Session, user_id: uuid.UUID) -> int:
+def _count_pinned_sessions(db: Session, user_id: uuid.UUID) -> int:
+    """Đếm pin của user (main + sub) — chung 1 hạn mức."""
     return int(
         db.scalar(
             select(func.count())
             .select_from(ChatSession)
             .where(
                 ChatSession.user_id == user_id,
-                ChatSession.is_main.is_(True),
                 ChatSession.is_pinned.is_(True),
             )
         )
@@ -135,13 +148,12 @@ def pin_session(
     user_id: uuid.UUID,
     session_id: uuid.UUID,
 ) -> ChatSession:
+    """Pin main hoặc sub. Mỗi user tối đa MAX_PINNED_SESSIONS (chung)."""
     row = get_owned_session(db, user_id, session_id)
-    if not row.is_main:
-        raise ForbiddenError("Only main sessions can be pinned")
     if row.is_pinned:
         return row
 
-    if _count_pinned_mains(db, user_id) >= MAX_PINNED_SESSIONS:
+    if _count_pinned_sessions(db, user_id) >= MAX_PINNED_SESSIONS:
         raise ConflictError(
             f"Pin limit reached (max {MAX_PINNED_SESSIONS} sessions)"
         )
@@ -161,8 +173,6 @@ def unpin_session(
     session_id: uuid.UUID,
 ) -> ChatSession:
     row = get_owned_session(db, user_id, session_id)
-    if not row.is_main:
-        raise ForbiddenError("Only main sessions can be unpinned")
     if not row.is_pinned:
         return row
 
@@ -237,7 +247,11 @@ def list_subsessions(
         db.scalars(
             select(ChatSession)
             .where(ChatSession.parent_session_id == parent.id)
-            .order_by(ChatSession.created_at.asc())
+            .order_by(
+                ChatSession.is_pinned.desc(),
+                ChatSession.pinned_at.desc().nulls_last(),
+                ChatSession.created_at.asc(),
+            )
         ).all()
     )
 
@@ -248,8 +262,8 @@ def fork_subsession(
     parent_id: uuid.UUID,
     *,
     forked_from_message_id: uuid.UUID,
-    title: str | None = None,
 ) -> ChatSession:
+    """Tạo sub với title=null; tin đầu trên sub sẽ auto-title như main."""
     parent = get_owned_session(db, user_id, parent_id)
     if not parent.is_main:
         raise ForbiddenError("Cannot fork from a subsession")
@@ -267,7 +281,7 @@ def fork_subsession(
     row = ChatSession(
         user_id=user_id,
         project_id=parent.project_id,
-        title=title,
+        title=None,
         is_main=False,
         parent_session_id=parent.id,
         forked_from_message_id=message.id,
@@ -373,3 +387,135 @@ def map_has_unread(
 
 def session_has_unread(_db: Session, session: ChatSession) -> bool:
     return map_has_unread([session]).get(session.id, False)
+
+
+def _escape_ilike(raw: str) -> str:
+    """Escape %, _, \\ for ILIKE with escape='\\'."""
+    return (
+        raw.replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+    )
+
+
+def _snippet(content: str, query: str, *, radius: int = 60) -> str:
+    text = content or ""
+    q = (query or "").strip()
+    if not text:
+        return ""
+    if not q:
+        cut = text[: max(radius * 2, 120)]
+        return cut + ("…" if len(text) > len(cut) else "")
+    lower = text.lower()
+    idx = lower.find(q.lower())
+    if idx < 0:
+        cut = text[: max(radius * 2, 120)]
+        return cut + ("…" if len(text) > len(cut) else "")
+    start = max(0, idx - radius)
+    end = min(len(text), idx + len(q) + radius)
+    out = text[start:end]
+    if start > 0:
+        out = "…" + out
+    if end < len(text):
+        out = out + "…"
+    return out
+
+
+def _session_activity_ts(session: ChatSession) -> datetime:
+    return session.last_message_at or session.updated_at
+
+
+def search_sessions(
+    db: Session,
+    user_id: uuid.UUID,
+    *,
+    q: str,
+    scope: SearchScope = "all",
+    project_id: uuid.UUID | None = None,
+    limit: int = DEFAULT_SESSION_PAGE_LIMIT,
+    offset: int = 0,
+) -> tuple[list[SessionSearchHit], bool]:
+    """Tìm session theo title và/hoặc nội dung message (ILIKE).
+
+    Dedup theo session_id: ưu tiên match title; không thì 1 message hit mới nhất.
+    Trả `(hits, has_more)` với limit+1.
+    """
+    query = (q or "").strip()
+    if len(query) < MIN_SEARCH_QUERY_LEN:
+        raise ServiceError(
+            f"q must be at least {MIN_SEARCH_QUERY_LEN} characters",
+            status_code=400,
+        )
+    if scope not in {"all", "title", "messages"}:
+        raise ServiceError("scope must be all, title, or messages", status_code=400)
+
+    limit = min(max(1, limit), MAX_SESSION_PAGE_LIMIT)
+    offset = max(0, offset)
+    pattern = f"%{_escape_ilike(query)}%"
+
+    session_filters = [ChatSession.user_id == user_id]
+    if project_id is not None:
+        session_filters.append(ChatSession.project_id == project_id)
+
+    hits: dict[uuid.UUID, SessionSearchHit] = {}
+
+    if scope in {"all", "title"}:
+        title_rows = list(
+            db.scalars(
+                select(ChatSession)
+                .where(
+                    *session_filters,
+                    ChatSession.title.is_not(None),
+                    ChatSession.title.ilike(pattern, escape="\\"),
+                )
+                .order_by(
+                    ChatSession.is_pinned.desc(),
+                    func.coalesce(
+                        ChatSession.last_message_at,
+                        ChatSession.updated_at,
+                    ).desc(),
+                )
+                .limit(SEARCH_SCAN_CAP)
+            ).all()
+        )
+        for row in title_rows:
+            hits[row.id] = SessionSearchHit(
+                session=row,
+                match_in="title",
+                snippet=(row.title or "").strip(),
+                message_id=None,
+            )
+
+    if scope in {"all", "messages"}:
+        msg_rows = list(
+            db.execute(
+                select(Message, ChatSession)
+                .join(ChatSession, Message.session_id == ChatSession.id)
+                .where(
+                    *session_filters,
+                    Message.content.ilike(pattern, escape="\\"),
+                )
+                .order_by(Message.created_at.desc())
+                .limit(SEARCH_SCAN_CAP)
+            ).all()
+        )
+        for msg, session in msg_rows:
+            if session.id in hits:
+                continue
+            hits[session.id] = SessionSearchHit(
+                session=session,
+                match_in="message",
+                snippet=_snippet(msg.content, query),
+                message_id=msg.id,
+            )
+
+    ordered = sorted(
+        hits.values(),
+        key=lambda h: (
+            0 if h.session.is_pinned else 1,
+            -_session_activity_ts(h.session).timestamp(),
+        ),
+    )
+    window = ordered[offset : offset + limit + 1]
+    has_more = len(window) > limit
+    return window[:limit], has_more

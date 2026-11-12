@@ -29,7 +29,7 @@ AfterToolNext = Literal["generate", "gather_review"]
 
 
 class PlanStep(BaseModel):
-    """Một bước trong multi_plan. tool_args có thể là literal hoặc `$stepN.path`."""
+    """Một bước trong plan. tool_args: literal, `$stepN.path`, hoặc template chứa `$stepN.path`."""
 
     tool_name: str
     tool_args: dict[str, Any] = Field(default_factory=dict)
@@ -37,13 +37,9 @@ class PlanStep(BaseModel):
 
 
 class RouteDecision(BaseModel):
-    """Output orchestrator → chọn nhánh."""
+    """Output orchestrator → chỉ chọn nhánh (không chọn tool/plan)."""
 
     route: RouteKind
-    need_retrieve: bool = False  # reserved (retrieve chưa gắn graph)
-    tool_name: str | None = None
-    tool_args: dict[str, Any] | None = None
-    plan: list[PlanStep] | None = None  # plan thô optional
     reason: str = ""
     confidence: float | None = None  # từ Jev; LLM → null
     decided_by: DecidedBy = "llm"
@@ -58,6 +54,14 @@ class ReviewDecision(BaseModel):
     reason: str = ""
     confidence: float | None = None
     decided_by: DecidedBy = "llm"
+
+
+class ToolPick(BaseModel):
+    """Output node tool_select → tên tool + args để tool_execution gọi."""
+
+    tool_name: str = ""
+    tool_args: dict[str, Any] = Field(default_factory=dict)
+    reason: str = ""
 
 
 class ToolResult(TypedDict, total=False):
@@ -80,6 +84,7 @@ class AgentState(TypedDict, total=False):
     query: str
     user_id: str
     messages: list
+    model: str | None  # catalog id provider:name; None → default catalog
 
     # Quyết định
     route: RouteDecision | None
@@ -94,8 +99,9 @@ class AgentState(TypedDict, total=False):
     rerank_top_n: int
 
     # Tools
+    tool_pick: ToolPick | None  # tool_select → tool_execution
     tool_results: list[ToolResult]
-    after_tool_next: AfterToolNext  # single_tool xong → generate | gather_review
+    after_tool_next: AfterToolNext  # tool_execution xong → generate | gather_review
 
     # Budget / threshold
     review_count: int
@@ -111,11 +117,13 @@ def initial_state(
     *,
     user_id: str = "",
     messages: list | None = None,
+    model: str | None = None,
     max_review_loops: int | None = None,
     jev_confidence_threshold: float | None = None,
 ) -> AgentState:
     """State mặc định trước START.
 
+    model: catalog id (`provider:name`); None → default trong llm_providers.
     max_review_loops / jev_confidence_threshold: None → đọc từ env
     (MAX_REVIEW_LOOPS, JEV_CONFIDENCE_THRESHOLD).
     """
@@ -123,6 +131,7 @@ def initial_state(
         "query": query,
         "user_id": user_id,
         "messages": messages or [],
+        "model": (model or "").strip() or None,
         "route": None,
         "review": None,
         "plan": [],
@@ -131,6 +140,7 @@ def initial_state(
         "documents": [],
         "retrieve_k": 20,
         "rerank_top_n": 5,
+        "tool_pick": None,
         "tool_results": [],
         "after_tool_next": "generate",
         "review_count": 0,
@@ -151,6 +161,7 @@ __all__ = [
     "PlanStep",
     "RouteDecision",
     "ReviewDecision",
+    "ToolPick",
     "ToolResult",
     "RouteKind",
     "ReviewNext",

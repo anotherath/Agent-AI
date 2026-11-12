@@ -1,4 +1,4 @@
-"""Helpers invoke tool + ghi ToolResult."""
+"""Helper tool_invocation — gọi tool + ghi ToolResult."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from langchain_core.tools import BaseTool
 from pydantic import BaseModel
 
 from agent.models import get_chat_model
-from agent.nodes.resolve import resolve_args
+from agent.nodes.util.arg_resolution import resolve_args
 from agent.state import ToolResult
 from agent.tools.registry import get_tool
 

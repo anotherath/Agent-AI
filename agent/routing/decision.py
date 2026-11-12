@@ -45,15 +45,12 @@ def decide_route(
         criteria=ORCHESTRATOR_CRITERIA,
     )
     if jev is not None and jev.confidence >= threshold and jev.choice in _ROUTE_OPTIONS:
-        decision = RouteDecision(
+        return RouteDecision(
             route=jev.choice,  # type: ignore[arg-type]
-            need_retrieve=False,
             reason="jev",
             confidence=jev.confidence,
             decided_by="jev",
         )
-        # Jev không điền tool_args — single_tool để node/LLM điền sau nếu thiếu
-        return decision
 
     return llm_route(query=query, tool_catalog=tool_catalog, messages=messages)
 
@@ -72,7 +69,7 @@ def decide_review(
     jev = classify_choice(
         state=state,
         question_id="review",
-        instructions=GATHER_REVIEW_INSTRUCTIONS,
+        instructions=GATHER_REVIEW_INSTRUCTIONS.format(tool_catalog=tool_catalog),
         criteria=GATHER_REVIEW_CRITERIA,
     )
     if jev is not None and jev.confidence >= threshold and jev.choice in _REVIEW_OPTIONS:

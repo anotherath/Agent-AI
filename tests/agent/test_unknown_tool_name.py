@@ -6,11 +6,12 @@ import json
 from typing import Any
 from unittest.mock import patch
 
-from agent.nodes.single_tool import single_tool_node
-from agent.nodes.tool_invoke import invoke_named_tool
-from agent.nodes.tool_select import ToolPick, pick_single_tool
-from agent.state import RouteDecision, initial_state
-from agent.tools.registry import resolve_tool_name, sanitize_route_decision
+from agent.nodes.tool_execution import tool_execution_node
+from agent.nodes.tool_select import tool_select_node
+from agent.nodes.util.tool_invocation import invoke_named_tool
+from agent.nodes.util.tool_pick import pick_single_tool
+from agent.state import ReviewDecision, RouteDecision, ToolPick, initial_state
+from agent.tools.registry import resolve_tool_name, sanitize_review_decision
 
 
 def test_resolve_tool_name_exact_only() -> None:
@@ -20,46 +21,46 @@ def test_resolve_tool_name_exact_only() -> None:
     assert resolve_tool_name(None) is None
 
 
-def test_sanitize_route_clears_hallucinated_tool_name() -> None:
-    decision = RouteDecision(
-        route="single_tool",
+def test_sanitize_review_clears_hallucinated_tool_name() -> None:
+    decision = ReviewDecision(
+        next="single_tool",
         tool_name="get_weather_forecast",
         tool_args={"date": "tomorrow"},
         decided_by="llm",
     )
-    cleaned = sanitize_route_decision(decision)
-    assert cleaned.route == "single_tool"
+    cleaned = sanitize_review_decision(decision)
+    assert cleaned.next == "single_tool"
     assert cleaned.tool_name is None
     assert cleaned.tool_args is None
 
 
-def test_single_tool_rematch_after_invented_name() -> None:
+def test_tool_select_then_execution_after_pick() -> None:
     state = initial_state("Bây giờ là mấy giờ?")
     state["route"] = RouteDecision(
         route="single_tool",
-        tool_name="get_current_time",
         decided_by="llm",
     )
 
     fake_pick = ToolPick(tool_name="time_now", tool_args={"timezone": "UTC"})
 
-    with (
-        patch(
-            "agent.nodes.single_tool.pick_single_tool",
-            return_value=fake_pick,
-        ),
-        patch(
-            "agent.nodes.single_tool.invoke_named_tool",
-            return_value={
-                "step": 0,
-                "tool": "time_now",
-                "args": {"timezone": "UTC"},
-                "result": '{"now":{}}',
-                "ok": True,
-            },
-        ) as invoke_mock,
+    with patch(
+        "agent.nodes.tool_select.pick_single_tool",
+        return_value=fake_pick,
     ):
-        out = single_tool_node(state)
+        selected = tool_select_node(state)
+    state.update(selected)
+
+    with patch(
+        "agent.nodes.tool_execution.invoke_named_tool",
+        return_value={
+            "step": 0,
+            "tool": "time_now",
+            "args": {"timezone": "UTC"},
+            "result": '{"now":{}}',
+            "ok": True,
+        },
+    ) as invoke_mock:
+        out = tool_execution_node(state)
 
     invoke_mock.assert_called_once()
     assert invoke_mock.call_args.kwargs["tool_name"] == "time_now"
@@ -67,20 +68,12 @@ def test_single_tool_rematch_after_invented_name() -> None:
     assert out["tool_results"][0]["tool"] == "time_now"
 
 
-def test_single_tool_soft_fail_when_pick_also_invalid() -> None:
+def test_tool_execution_soft_fail_when_pick_invalid() -> None:
     state = initial_state("mấy giờ?")
-    state["route"] = RouteDecision(
-        route="single_tool",
-        tool_name="get_current_time",
-        decided_by="llm",
-    )
-    fake_pick = ToolPick(tool_name="still_wrong", tool_args={})
+    state["route"] = RouteDecision(route="single_tool", decided_by="llm")
+    state["tool_pick"] = ToolPick(tool_name="still_wrong", tool_args={})
 
-    with patch(
-        "agent.nodes.single_tool.pick_single_tool",
-        return_value=fake_pick,
-    ):
-        out = single_tool_node(state)
+    out = tool_execution_node(state)
 
     entry = out["tool_results"][0]
     assert entry["ok"] is False
@@ -110,7 +103,7 @@ def test_pick_single_tool_handles_none_structured_output() -> None:
     )()
 
     with patch(
-        "agent.nodes.tool_select.get_chat_model",
+        "agent.nodes.util.tool_pick.get_chat_model",
         return_value=type(
             "M",
             (),
@@ -120,7 +113,11 @@ def test_pick_single_tool_handles_none_structured_output() -> None:
         picked = pick_single_tool("mấy giờ?")
 
     assert picked.tool_name == ""
-    assert picked.reason == "structured_output_none"
+    # structured_output_none nếu không retry; hết retry → pick_invalid_name:(trống)
+    assert picked.reason in {
+        "structured_output_none",
+        "pick_invalid_name:(trống)",
+    }
 
 
 def test_pick_single_tool_retries_after_invalid_name() -> None:
@@ -138,7 +135,7 @@ def test_pick_single_tool_retries_after_invalid_name() -> None:
             )
 
     with patch(
-        "agent.nodes.tool_select.get_chat_model",
+        "agent.nodes.util.tool_pick.get_chat_model",
         return_value=type(
             "M",
             (),
@@ -149,4 +146,4 @@ def test_pick_single_tool_retries_after_invalid_name() -> None:
 
     assert len(calls) == 2
     assert picked.tool_name == "tavily_search"
-    assert "không phải tool hợp lệ" in calls[1][1]["content"]
+    assert "không hợp lệ hoặc trống" in calls[1][1]["content"]

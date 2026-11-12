@@ -18,7 +18,7 @@ Một cuộc hội thoại. Có thể:
 - Có context riêng của session
 - Chứa file được upload trong session
 - Có một **luồng chính**; từ luồng chính có thể tạo nhiều **subsession** (nhánh fork)
-- Có thể **pin** session chính (tối đa 3/user) để nổi trên danh sách
+- Có thể **pin** session (main hoặc sub, tối đa 3/user chung) để nổi trên danh sách
 
 ## Subsession
 
@@ -26,6 +26,7 @@ Một cuộc hội thoại. Có thể:
 - Khi fork, subsession kế thừa toàn bộ context lịch sử từ đầu session chính đến điểm fork (không lấy phần sau điểm fork trên nhánh chính)
 - Sau điểm fork, subsession chat độc lập với nhánh chính
 - Subsession chỉ thuộc về một session chính, không có Take Note riêng
+- Pin / auto-title giống main (title fork luôn null → auto ở tin đầu)
 
 ## Take Note
 

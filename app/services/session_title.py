@@ -26,9 +26,7 @@ _TITLE_PROMPT = (
 
 
 def should_autotitle(session: ChatSession, *, message_count: int) -> bool:
-    """Chỉ main session, title trống, và đúng tin nhắn đầu tiên."""
-    if not session.is_main:
-        return False
+    """Main hoặc sub: title trống và đúng tin nhắn đầu tiên trên session đó."""
     if session.title and session.title.strip():
         return False
     return message_count == 1

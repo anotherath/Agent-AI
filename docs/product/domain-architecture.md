@@ -87,7 +87,7 @@ Index: `(user_id)`.
 | `project_id` | UUID | nullable, FK → `projects(id)` ON DELETE **RESTRICT** |
 | `title` | TEXT | nullable |
 | `is_main` | BOOLEAN | NOT NULL, default true |
-| `is_pinned` | BOOLEAN | NOT NULL, default false — chỉ dùng cho session main |
+| `is_pinned` | BOOLEAN | NOT NULL, default false — main hoặc sub |
 | `pinned_at` | TIMESTAMPTZ | nullable — lúc pin; dùng sort trong nhóm pinned |
 | `last_message_at` | TIMESTAMPTZ | nullable — lần nhắn/sửa tin cuối; **main** còn được bump khi sub có tin |
 | `parent_session_id` | UUID | nullable, FK → `chat_sessions(id)` ON DELETE CASCADE |
@@ -106,7 +106,7 @@ Index: `(user_id)`.
 2. Subsession kế thừa `user_id` (và `project_id` nếu có) từ parent; không tự đổi.
 3. Khi `project_id` đã khác NULL: **cấm** UPDATE thành NULL hoặc sang project khác.
 4. Subsession không có take note.
-5. Pin chỉ trên session main; mỗi user tối đa **3** session pinned.
+5. Pin được trên main hoặc sub; mỗi user tối đa **3** session pinned (chung cả main + sub).
 
 Index: `(user_id, updated_at DESC)`, `(user_id, is_pinned, pinned_at)`, `(project_id)`, `(parent_session_id)`.
 
@@ -210,15 +210,16 @@ Auth đã có (không đổi trong doc này):
 | Method | Path | Mô tả |
 |---|---|---|
 | GET | `/chat/sessions` | List session chính (phân trang). Query: `project_id?`, `limit` (default 20, max 100), `offset` (default 0). Response: `{items, total, limit, offset, has_more}` — sort pinned → `updated_at`. Mỗi item có `run_status`, `active_run_id`, `last_read_at`, `last_message_at`, `has_unread` |
+| GET | `/chat/sessions/search` | Search session theo `q` (min 2 ký tự). Query: `scope=all\|title\|messages`, `project_id?`, `limit`, `offset`. Match title và/hoặc `messages.content` (ILIKE). Response: `{items: [{session, match_in, snippet, message_id}], total, limit, offset, has_more, q, scope}` — dedup theo session (ưu tiên title) |
 | POST | `/chat/sessions` | Tạo session chính (`title?`, `project_id?` — set thì gắn mãi) |
 | GET | `/chat/sessions/{session_id}` | Chi tiết + metadata (main/sub, project, fork point, run/read state) |
 | POST | `/chat/sessions/{session_id}/read` | Đánh dấu đã đọc (`last_read_at=now` → `has_unread=false`). Không đổi `updated_at` |
 | PATCH | `/chat/sessions/{session_id}` | Đổi `title` only; **không** cho đổi `project_id` |
-| POST | `/chat/sessions/{session_id}/pin` | Pin session main (tối đa 3/user; 409 nếu đủ slot) |
-| DELETE | `/chat/sessions/{session_id}/pin` | Unpin session |
+| POST | `/chat/sessions/{session_id}/pin` | Pin main hoặc sub (tối đa 3/user chung; 409 nếu đủ slot) |
+| DELETE | `/chat/sessions/{session_id}/pin` | Unpin session (main hoặc sub) |
 | DELETE | `/chat/sessions/{session_id}` | Xóa session (main xóa cascade sub + messages + notes + files session) |
 | GET | `/chat/sessions/{session_id}/subsessions` | List subsession của một main |
-| POST | `/chat/sessions/{session_id}/fork` | Fork subsession từ main. Body: `forked_from_message_id`, `title?`. Chỉ khi `session_id` là main |
+| POST | `/chat/sessions/{session_id}/fork` | Fork subsession từ main. Body: `forked_from_message_id`. Sub `title=null` → auto-title ở tin đầu (như main). Chỉ khi `session_id` là main |
 
 ### 4.3 Messages & chat
 

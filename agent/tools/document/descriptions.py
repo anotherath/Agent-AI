@@ -7,8 +7,7 @@ DOCUMENT_TO_MARKDOWN = (
     "Chuyển tài liệu local (PDF, DOCX, Markdown, TXT) sang Markdown để đọc hoặc tóm tắt.\n"
     "Dùng khi người dùng yêu cầu đọc, tóm tắt hoặc trích xuất nội dung từ file trên máy.\n"
     "Input: path (bắt buộc); source_type, output_path, pages (tùy chọn).\n"
-    "Output: JSON gồm source_path, source_type, pages, char_count, markdown "
-    "(và output_path nếu ghi file).\n"
+    "Output: JSON {source_path, source_type, pages, char_count, markdown, output_path?}.\n"
     "Lưu ý: PDF chỉ hỗ trợ text layer (không OCR). Với PDF dài nên chỉ định pages. "
     "Chỉ đọc file local, không hỗ trợ URL."
 )

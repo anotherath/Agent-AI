@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import uuid
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from agent.llm_providers import default_model_id, is_known_model
 from app.api.deps import get_current_user
 from app.api.errors import raise_service_error
 from app.api.sse import stream_run_sse
@@ -25,6 +26,8 @@ from app.schemas.chat import (
     MessageEditRequest,
     MessageOut,
     MessageRegenerateRequest,
+    SessionSearchHitOut,
+    SessionSearchOut,
 )
 from app.services import chat_runs
 from app.services import chat_sessions as chat_svc
@@ -32,10 +35,31 @@ from app.services import messages as messages_svc
 from app.services.chat_sessions import (
     DEFAULT_SESSION_PAGE_LIMIT,
     MAX_SESSION_PAGE_LIMIT,
+    MIN_SEARCH_QUERY_LEN,
 )
 from app.services.errors import ServiceError
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+
+
+def _resolve_request_model(model: str | None) -> str:
+    """Validate optional catalog id; trống → default."""
+    raw = (model or "").strip()
+    if not raw:
+        return default_model_id()
+    if not is_known_model(raw):
+        raise HTTPException(status_code=400, detail=f"Unknown model: {raw}")
+    return raw
+
+
+def _model_from_message_metadata(msg) -> str | None:
+    meta = getattr(msg, "metadata_", None) or {}
+    if not isinstance(meta, dict):
+        return None
+    raw = meta.get("model")
+    if isinstance(raw, str) and raw.strip() and is_known_model(raw.strip()):
+        return raw.strip()
+    return None
 
 _SSE_HEADERS = {
     "Cache-Control": "no-cache",
@@ -106,12 +130,15 @@ async def _start_and_stream(
     user: User,
     session: ChatSession,
     user_msg,
+    model: str | None = None,
 ) -> StreamingResponse:
+    catalog_model = _resolve_request_model(model)
     try:
         run_id = await chat_runs.start_chat_run(
             user_id=user.id,
             session_id=session.id,
             user_message_id=user_msg.id,
+            model=catalog_model,
         )
     except ServiceError as exc:
         raise_service_error(exc)
@@ -155,6 +182,68 @@ def list_sessions(
         limit=limit,
         offset=offset,
         has_more=has_more,
+    )
+
+
+@router.get("/sessions/search", response_model=SessionSearchOut)
+def search_sessions(
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+    q: Annotated[
+        str,
+        Query(
+            min_length=MIN_SEARCH_QUERY_LEN,
+            description="Chuỗi tìm (title và/hoặc nội dung message)",
+        ),
+    ],
+    scope: Annotated[
+        Literal["all", "title", "messages"],
+        Query(description="all | title | messages"),
+    ] = "all",
+    project_id: uuid.UUID | None = None,
+    limit: Annotated[
+        int,
+        Query(ge=1, le=MAX_SESSION_PAGE_LIMIT),
+    ] = DEFAULT_SESSION_PAGE_LIMIT,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> SessionSearchOut:
+    try:
+        hits, has_more = chat_svc.search_sessions(
+            db,
+            user.id,
+            q=q,
+            scope=scope,
+            project_id=project_id,
+            limit=limit,
+            offset=offset,
+        )
+    except ServiceError as exc:
+        raise_service_error(exc)
+
+    sessions = [h.session for h in hits]
+    # Heal running + unread như list sessions.
+    out_sessions = {
+        s.id: so
+        for s, so in zip(sessions, _sessions_out(db, sessions), strict=True)
+    }
+    items = [
+        SessionSearchHitOut(
+            session=out_sessions[h.session.id],
+            match_in=h.match_in,
+            snippet=h.snippet,
+            message_id=h.message_id,
+        )
+        for h in hits
+    ]
+    total = offset + len(items) + (1 if has_more else 0)
+    return SessionSearchOut(
+        items=items,
+        total=total,
+        limit=limit,
+        offset=offset,
+        has_more=has_more,
+        q=q.strip(),
+        scope=scope,
     )
 
 
@@ -302,7 +391,6 @@ def fork_session(
             user.id,
             session_id,
             forked_from_message_id=body.forked_from_message_id,
-            title=body.title,
         )
         db.commit()
         db.refresh(row)
@@ -384,6 +472,7 @@ async def post_message(
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> StreamingResponse:
+    catalog_model = _resolve_request_model(body.model)
     try:
         session = chat_svc.get_owned_session(db, user.id, session_id)
         chat_runs.ensure_session_idle(db, session)
@@ -393,6 +482,7 @@ async def post_message(
             session,
             role="user",
             content=body.content.strip(),
+            metadata={"model": catalog_model},
             parent_message_id=latest.id if latest is not None else None,
         )
         chat_svc.mark_session_read(db, user.id, session.id)
@@ -402,7 +492,12 @@ async def post_message(
     except ServiceError as exc:
         raise_service_error(exc)
 
-    return await _start_and_stream(user=user, session=session, user_msg=user_msg)
+    return await _start_and_stream(
+        user=user,
+        session=session,
+        user_msg=user_msg,
+        model=catalog_model,
+    )
 
 
 @router.post("/sessions/{session_id}/regenerate")
@@ -428,8 +523,14 @@ async def regenerate_message(
     except ServiceError as exc:
         raise_service_error(exc)
 
+    catalog_model = _resolve_request_model(
+        body.model or _model_from_message_metadata(user_msg)
+    )
     return await _start_and_stream(
-        user=user, session=target_session, user_msg=user_msg
+        user=user,
+        session=target_session,
+        user_msg=user_msg,
+        model=catalog_model,
     )
 
 
@@ -441,6 +542,7 @@ async def edit_message(
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> StreamingResponse:
+    catalog_model = _resolve_request_model(body.model)
     try:
         target_session, user_msg = messages_svc.prepare_edit_target(
             db,
@@ -450,6 +552,11 @@ async def edit_message(
             new_content=body.content.strip(),
         )
         chat_runs.ensure_session_idle(db, target_session)
+        # Ghi model đã chọn lên user message mới (edit tạo sibling).
+        meta = dict(user_msg.metadata_ or {})
+        meta["model"] = catalog_model
+        user_msg.metadata_ = meta
+        db.add(user_msg)
         chat_svc.mark_session_read(db, user.id, target_session.id)
         db.commit()
         db.refresh(user_msg)
@@ -458,7 +565,10 @@ async def edit_message(
         raise_service_error(exc)
 
     return await _start_and_stream(
-        user=user, session=target_session, user_msg=user_msg
+        user=user,
+        session=target_session,
+        user_msg=user_msg,
+        model=catalog_model,
     )
 
 
@@ -469,6 +579,7 @@ async def ask_from_selection(
     user: Annotated[User, Depends(get_current_user)],
     db: Annotated[Session, Depends(get_db)],
 ) -> StreamingResponse:
+    catalog_model = _resolve_request_model(body.model)
     try:
         target_session, user_msg = messages_svc.prepare_ask_from_selection(
             db,
@@ -480,6 +591,10 @@ async def ask_from_selection(
             question=body.question,
         )
         chat_runs.ensure_session_idle(db, target_session)
+        meta = dict(user_msg.metadata_ or {})
+        meta["model"] = catalog_model
+        user_msg.metadata_ = meta
+        db.add(user_msg)
         chat_svc.mark_session_read(db, user.id, target_session.id)
         db.commit()
         db.refresh(user_msg)
@@ -488,5 +603,8 @@ async def ask_from_selection(
         raise_service_error(exc)
 
     return await _start_and_stream(
-        user=user, session=target_session, user_msg=user_msg
+        user=user,
+        session=target_session,
+        user_msg=user_msg,
+        model=catalog_model,
     )

@@ -1,4 +1,4 @@
-"""Tavily Extract — đọc nội dung trang theo URL."""
+"""Tavily Extract — đọc nội dung trang theo URL (đã làm sạch)."""
 
 from __future__ import annotations
 
@@ -8,7 +8,11 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 from tavily import TavilyClient
 
-from agent.tools.search.client import require_api_key, to_tool_result
+from agent.tools.search.client import (
+    compact_tavily_extract_payload,
+    require_api_key,
+    to_tool_result,
+)
 from agent.tools.search.descriptions import (
     TAVILY_EXTRACT,
     TAVILY_EXTRACT_EXTRACT_DEPTH,
@@ -37,7 +41,7 @@ def tavily_extract(
     extract_depth: ExtractDepth = "basic",
     format: ContentFormat = "markdown",
 ) -> str:
-    """Gọi Tavily Extract cho một URL; trả JSON string."""
+    """Gọi Tavily Extract cho một URL; trả JSON string đã clean."""
     try:
         client = TavilyClient(api_key=require_api_key())
         raw = client.extract(
@@ -55,18 +59,23 @@ def tavily_extract(
                     "failed_results": failed,
                 }
             )
-        item = results[0] if len(results) == 1 else None
-        payload: dict[str, Any] = {
-            "url": url,
-            "extract_depth": extract_depth,
-            "format": format,
-            "results": results,
-            "failed_results": failed,
-        }
+        item: dict[str, Any] | None = None
+        if results and isinstance(results[0], dict):
+            item = results[0]
+        content = ""
+        title = None
         if item is not None:
-            payload["content"] = item.get("raw_content") or item.get("content") or ""
-            payload["title"] = item.get("title")
-        return to_tool_result(payload)
+            content = str(item.get("raw_content") or item.get("content") or "")
+            title = item.get("title")
+        return to_tool_result(
+            compact_tavily_extract_payload(
+                url=url,
+                title=title if isinstance(title, str) else None,
+                content=content,
+                extract_depth=extract_depth,
+                format=format,
+            )
+        )
     except ValueError as exc:
         return to_tool_result({"error": str(exc), "url": url})
     except Exception as exc:  # noqa: BLE001

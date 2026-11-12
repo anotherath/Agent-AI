@@ -108,7 +108,14 @@ def test_tavily_extract_mocked(monkeypatch: pytest.MonkeyPatch):
         "results": [
             {
                 "url": "https://example.com/a",
-                "raw_content": "# Hello\n\nWorld " + ("x" * 40),
+                "raw_content": (
+                    "[![logo](https://cdn.example.com/logo.png)](https://example.com/)\n\n"
+                    "Đăng nhập\n\n"
+                    "# Hello\n\n"
+                    "SJC Mua **136,000** Bán **139,000**\n\n"
+                    "[Share](javascript:void(0);)\n"
+                    "https://cdn.example.com/banner.jpg\n"
+                ),
                 "title": "Example",
             }
         ],
@@ -120,5 +127,22 @@ def test_tavily_extract_mocked(monkeypatch: pytest.MonkeyPatch):
     data = json.loads(tavily_extract("https://example.com/a"))
     assert "error" not in data
     assert data["url"] == "https://example.com/a"
+    assert data["title"] == "Example"
+    assert "results" not in data
     assert "Hello" in data["content"]
+    assert "136,000" in data["content"]
+    assert "![logo]" not in data["content"]
+    assert "javascript:" not in data["content"]
+    assert "Đăng nhập" not in data["content"]
+    assert "banner.jpg" not in data["content"]
     fake_client.extract.assert_called_once()
+
+
+def test_clean_extract_text_unit():
+    from agent.tools.search.client import clean_extract_text
+
+    raw = "![x](https://a.com/x.png)\n\nGiá vàng\n\n[Share](javascript:void(0);)\n"
+    out = clean_extract_text(raw)
+    assert "Giá vàng" in out
+    assert "javascript" not in out
+    assert "![" not in out

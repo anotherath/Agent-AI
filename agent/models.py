@@ -1,23 +1,26 @@
-"""Factory ChatOpenAI dùng chung (generate, multi_plan, LLM fallback).
+"""Factory ChatOpenAI dùng chung (generate, planner, LLM fallback).
 
-Env:
-  OPENAI_API_KEY        bắt buộc
-  OPENAI_MODEL          mặc định gpt-4o-mini
-  OPENAI_TEMPERATURE    mặc định 0.0
-  OPENAI_BASE_URL       optional (proxy / OpenAI-compatible); trống = default SDK
-  OPENAI_REASONING_MAX_TOKENS  ngân sách suy luận (route/plan/tool/title)
-  OPENAI_MAX_TOKENS            alias cũ → fallback cho reasoning
-  OPENAI_GENERATE_MAX_TOKENS   ngân sách câu trả lời cuối (node generate)
-  OPENAI_TOP_P / OPENAI_TOP_K  optional
+Env (legacy / chung):
+  OPENAI_TEMPERATURE, OPENAI_REASONING_MAX_TOKENS, OPENAI_GENERATE_MAX_TOKENS,
+  OPENAI_TOP_P / OPENAI_TOP_K
+
+Provider/model/key: xem agent/llm_providers.py + config/llm_providers.yaml
+(LLM_PROVIDERS_FILE). Fallback OPENAI_API_KEY + OPENAI_BASE_URL + OPENAI_MODEL
+khi chưa có YAML.
 """
 
 from __future__ import annotations
 
 import os
+from contextlib import contextmanager
+from contextvars import ContextVar
 from functools import lru_cache
+from typing import Iterator
 
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
+
+from agent.llm_providers import resolve_model
 
 load_dotenv()
 
@@ -26,26 +29,24 @@ DEFAULT_TEMPERATURE = 0.0
 DEFAULT_REASONING_MAX_TOKENS = 1024
 DEFAULT_GENERATE_MAX_TOKENS = 2048
 
-
-# --- Đọc env ---
-
-
-def _require_api_key() -> str:
-    key = os.getenv("OPENAI_API_KEY", "").strip()
-    if not key:
-        raise ValueError(
-            "Missing OPENAI_API_KEY. Set it in the environment or .env file."
-        )
-    return key
+# Model catalog id cho toàn bộ LLM calls trong một agent run.
+_llm_model_ctx: ContextVar[str | None] = ContextVar("llm_catalog_model", default=None)
 
 
-def _model_name() -> str:
-    return os.getenv("OPENAI_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
+@contextmanager
+def llm_model_scope(model: str | None) -> Iterator[None]:
+    """Gắn catalog model cho get_chat_model() trong scope (một chat turn).
 
-
-def _base_url() -> str | None:
-    raw = os.getenv("OPENAI_BASE_URL", "").strip()
-    return raw or None
+    Khôi phục bằng set(previous), không dùng reset(token): scope hay bọc
+    async for / LangGraph copy_context — reset token ở Context khác sẽ lỗi
+    \"Token was created in a different Context\".
+    """
+    previous = _llm_model_ctx.get()
+    _llm_model_ctx.set((model or "").strip() or None)
+    try:
+        yield
+    finally:
+        _llm_model_ctx.set(previous)
 
 
 def _parse_float(name: str, raw: str) -> float:
@@ -110,10 +111,36 @@ def resolve_generate_max_tokens(override: int | None = None) -> int:
     return DEFAULT_GENERATE_MAX_TOKENS
 
 
-# --- Public API ---
+@lru_cache(maxsize=32)
+def _cached_chat_model(
+    *,
+    catalog_id: str,
+    credential_id: str,
+    upstream_model: str,
+    base_url: str,
+    api_key: str,
+    temperature: float,
+    max_tokens: int,
+    top_p: float | None,
+    top_k: int | None,
+) -> ChatOpenAI:
+    kwargs: dict = {
+        "model": upstream_model,
+        "api_key": api_key,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    if base_url:
+        kwargs["base_url"] = base_url
+    if top_p is not None:
+        kwargs["top_p"] = top_p
+    if top_k is not None:
+        kwargs["model_kwargs"] = {"top_k": top_k}
+    # catalog_id / credential_id chỉ để phân biệt cache key.
+    _ = (catalog_id, credential_id)
+    return ChatOpenAI(**kwargs)
 
 
-@lru_cache(maxsize=16)
 def get_chat_model(
     *,
     model: str | None = None,
@@ -122,45 +149,38 @@ def get_chat_model(
     top_p: float | None = None,
     top_k: int | None = None,
 ) -> ChatOpenAI:
-    """Tạo (và cache) ChatOpenAI theo env / override.
+    """Tạo (và cache) ChatOpenAI theo catalog / override.
 
+    model: catalog id (`provider:name`). None → scope hiện tại → default catalog.
     Không truyền max_tokens → dùng ngân sách reasoning.
     Node generate phải truyền resolve_generate_max_tokens().
     """
-    kwargs: dict = {
-        "model": model or _model_name(),
-        "api_key": _require_api_key(),
-        "temperature": _temperature(temperature),
-        "max_tokens": (
-            max_tokens
-            if max_tokens is not None
-            else resolve_reasoning_max_tokens()
+    catalog_id = (model or "").strip() or _llm_model_ctx.get()
+    resolved = resolve_model(catalog_id)
+    return _cached_chat_model(
+        catalog_id=resolved.catalog_id,
+        credential_id=resolved.credential_id,
+        upstream_model=resolved.upstream_model,
+        base_url=resolved.base_url or "",
+        api_key=resolved.api_key,
+        temperature=_temperature(temperature),
+        max_tokens=(
+            max_tokens if max_tokens is not None else resolve_reasoning_max_tokens()
         ),
-    }
-
-    base_url = _base_url()
-    if base_url is not None:
-        kwargs["base_url"] = base_url
-
-    resolved_top_p = _optional_float("OPENAI_TOP_P", top_p)
-    if resolved_top_p is not None:
-        kwargs["top_p"] = resolved_top_p
-
-    resolved_top_k = _optional_int("OPENAI_TOP_K", top_k)
-    if resolved_top_k is not None:
-        kwargs["model_kwargs"] = {"top_k": resolved_top_k}
-
-    return ChatOpenAI(**kwargs)
+        top_p=_optional_float("OPENAI_TOP_P", top_p),
+        top_k=_optional_int("OPENAI_TOP_K", top_k),
+    )
 
 
 def clear_chat_model_cache() -> None:
     """Xóa cache (test / đổi env runtime)."""
-    get_chat_model.cache_clear()
+    _cached_chat_model.cache_clear()
 
 
 __all__ = [
     "get_chat_model",
     "clear_chat_model_cache",
+    "llm_model_scope",
     "resolve_reasoning_max_tokens",
     "resolve_generate_max_tokens",
     "DEFAULT_MODEL",

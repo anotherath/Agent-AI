@@ -1,4 +1,4 @@
-"""Node multi_plan — LLM lập plan[] chi tiết."""
+"""Node planner — LLM lập plan[] chi tiết."""
 
 from __future__ import annotations
 
@@ -7,12 +7,13 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, create_model
 
 from agent.models import get_chat_model
-from agent.prompts.multi_plan import MULTI_PLAN_SYSTEM, MULTI_PLAN_USER
+from agent.prompts.planner import PLANNER_SYSTEM, PLANNER_USER
 from agent.state import AgentState, PlanStep
 from agent.tools.registry import (
     known_tool_names_sorted,
     sanitize_plan_steps,
     tool_catalog_text,
+    tool_result_paths_text,
 )
 
 
@@ -53,7 +54,17 @@ def _steps_need_rematch(steps: list[PlanStep]) -> bool:
     return any(not (s.tool_name or "").strip() for s in steps)
 
 
-def multi_plan_node(state: AgentState) -> dict[str, Any]:
+def _invalid_step_hints(steps: list[PlanStep]) -> str:
+    hints: list[str] = []
+    for i, step in enumerate(steps):
+        if (step.tool_name or "").strip():
+            continue
+        purpose = (step.purpose or "").strip() or "(không có purpose)"
+        hints.append(f"  - step{i}: {purpose}")
+    return "\n".join(hints) if hints else "  - (không rõ)"
+
+
+def planner_node(state: AgentState) -> dict[str, Any]:
     query = state.get("query") or ""
     route = state.get("route")
     route_hint = ""
@@ -62,8 +73,11 @@ def multi_plan_node(state: AgentState) -> dict[str, Any]:
 
     schema = _plan_output_schema()
     llm = get_chat_model().with_structured_output(schema)
-    system = MULTI_PLAN_SYSTEM.format(tool_catalog=tool_catalog_text())
-    user = MULTI_PLAN_USER.format(
+    system = PLANNER_SYSTEM.format(
+        tool_catalog=tool_catalog_text(),
+        tool_result_paths=tool_result_paths_text(),
+    )
+    user = PLANNER_USER.format(
         query=query,
         route_hint=route_hint or "(không)",
         tool_results=state.get("tool_results") or [],
@@ -78,12 +92,14 @@ def multi_plan_node(state: AgentState) -> dict[str, Any]:
     )
     steps = sanitize_plan_steps(_parse_steps(result))
 
-    # Provider bỏ qua enum / bịa tên → sanitize trống → retry 1 lần.
+    # Rematch cả plan tối đa 1 lần nếu còn tool_name trống sau sanitize.
+    # Sửa args/$stepN từng bước: plan_execution + PLANNER_MAX_RETRIES.
     if _steps_need_rematch(steps):
         retry_user = (
             f"{user}\n\n"
-            f"Lỗi: có bước dùng tool_name không hợp lệ hoặc trống. "
-            f"Mỗi bước chỉ được chọn đúng một tên trong: {allowed}."
+            f"Lỗi: các bước sau có tool_name không hợp lệ hoặc trống:\n"
+            f"{_invalid_step_hints(steps)}\n"
+            f"Viết lại toàn bộ steps; mỗi bước chỉ được chọn đúng một tên trong: {allowed}."
         )
         result2 = llm.invoke(
             [
@@ -98,3 +114,6 @@ def multi_plan_node(state: AgentState) -> dict[str, Any]:
         "step_index": 0,
         "after_tool_next": "gather_review",
     }
+
+
+__all__ = ["planner_node"]
